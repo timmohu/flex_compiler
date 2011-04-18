@@ -1,0 +1,87 @@
+##N.B. This article uses the older Flex 3 syntax to avoid confusion over the multiple namespaces found in Flex 4##
+#Background: MXML#
+Those of you who have experimented with Flex before will no doubt have written MXML files either by hand or using Flash Builder's design view. Like XHTML, MXML is an XML-based markup language which provides a quick and easy way to create layouts. For example, this MXML markup:
+	<?xml version="1.0" encoding="utf-8?>
+	<mx:Form xmlns:mx="http://www.adobe.com/2006/mxml" width="300">
+		<mx:FormItem label="Enter name" width="100%">
+			<mx:TextInput width="100%" text="Enter your name here"/>
+		</mx:FormItem>
+	</mx:Form>
+...is equivalent to this ActionScript:
+	var myForm:Form = new Form();
+	myForm.width = 300;
+	var myFormItem = new FormItem();
+	myFormItem.label = "Enter name";
+	myFormItem.percentWidth = 100;
+	var myTextInput:TextInput = new TextInput();
+	myTextInput.percentWidth = 100;
+	myTextInput.text = "Enter your name here";
+	myFormItem.addChild(myTextInput);
+	myForm.addChild(myFormItem);
+As you can see, the MXML markup is much clearer and more compact than its ActionScript counterpart, with the hierarchical form of the XML reflecting the layout structure far more intuitively than the linear AS code. Essentially, while we may not actually like the Flex framework or its components all that much, there are clear advantages to using MXML to define layouts rather than plain ActionScript.
+#Part 1: MXML without Flex#
+So is there a way of reaping the rewards of MXML without having to put up with the components? Due to a lack of documentation on the topic, a common misconception is that MXML can only be used to instantiate Flex components. In fact it can be used to create and set the properties of any AS3 object, regardless of whether or not they have anything to do with Flex, or whether or not they extend the DisplayObject class. For example, a TextField's properties can be set using MXML attributes, as follows:
+	<?xml version="1.0" encoding="utf-8?>
+	<text:TextField xmlns:text="flash.text" multiline="false" autoSize="left" type="input" text="Enter your name here"/>
+...so in this way we can set the simple atomic properties of any AS3 object. But what about, say, if we wanted to set the children of a Sprite? Seeing as MXML is a purely declarative markup language we can't use it to call a Sprite's addChild() method, so it looks like we'll have to create a Sprite subclass in ActionScript which does have a 'children' property - something like the following:
+	package myproject.components {
+
+		[DefaultProperty("children")]
+		public class SpriteContainer extends Sprite {
+
+			public function get children():Array {
+				var value:Array = [];
+				for (var i:int = 0; i < this.numChildren; i++) value.push(this.getChildAt(i));
+				return value;
+			}
+
+			public function set children(value:Array):void {
+				while (this.numChildren > 0) this.removeChildAt(0);
+				for each (var child:DisplayObject in value) this.addChild(child);
+			}
+		}
+	}
+Note the 'DefaultProperty' metadata tag: this means that when this object is invoked from an MXML document, any immediate descendants of the object's MXML node will be passed as the value for the named property (in this case, 'children'). So to instantiate a SpriteContainer containing some TextFields, we could do the following:
+	<?xml version="1.0" encoding="utf-8?>
+	<SpriteContainer xmlns="myproject.components" xmlns:text="flash.text">
+		<text:TextField multiline="false" autoSize="left" text="Text field 1" x="20" y="20"/>
+		<text:TextField multiline="false" autoSize="left" text="Text field 2" x="20" y="40"/>
+		<text:TextField multiline="false" autoSize="left" text="Text field 3" x="20" y="60"/>
+	</SpriteContainer>
+...and because the DefaultProperty is defined as 'children', when this SpriteContainer is instantiated it will have its 'children' property set to an array containing the three TextField objects.
+This gives us quite a lot of opportunity to experiment and create rapid page prototypes and layouts, exploiting the '<a href="http://learn.adobe.com/wiki/display/Flex/Code+Behind">code behind</a>' pattern to subclass custom ActionScript base components.
+One thing to bear in mind, however, is the special 'id' attribute: in an MXML document, any node which has specifies an attribute named 'id' will NOT try to set a property called 'id' on that object, but will instead look in the current MXML document's root class for a field with that name, and set that field's value to the object specified by the node. So if I wrote the following:
+	<?xml version="1.0" encoding="utf-8?>
+	<SpriteContainerSubclass xmlns="myproject.components" xmlns:text="flash.text">
+		<SpriteContainer id="container1">
+			<text:TextField id="text1" multiline="false" autoSize="left" text="Text field 1" x="20" y="20"/>
+		</SpriteContainer>
+		<text:TextField id="text2" multiline="false" autoSize="left" text="Text field 2" x="20" y="40"/>
+	</SpriteContainerSubclass>
+...I would need public fields named 'container1', 'text1', and 'text2' on the root SpriteContainerSubclass object.
+#More background: Data bindings vs Expressions#
+This in itself is all very impressive, but we can go one step further. One of Flex's most ambitious features is its 'data bindings': by putting any part of an MXML attribute between curly braces, we can enter a raw ActionScript expression which can be evaluated (and re-evaluated) at runtime, rather than a literal value which must be known at compile time:
+	<?xml version="1.0" encoding="utf-8?>
+	<SpriteContainerSubclass xmlns="myproject.components" xmlns:text="flash.text">
+		<SpriteContainer id="container1">
+			<text:TextField id="text1" multiline="false" autoSize="left" text="Enter your name" x="20" y="20"/>
+		</SpriteContainer>
+		<text:TextField id="text2" multiline="false" autoSize="left" text="You entered: '{text1.text}'" x="20" y="40"/>
+	</SpriteContainerSubclass>
+The above binding expression will ensure that the value of text2 will be set to "You entered: [text1's text value goes here]". While this is very convenient, Flex bindings suffer from being very slow and unwieldy, as well as not being garbage collected properly, due to the overhead entailed in dispatching events whenever the value is updated. Far more useful, in my opinion, would be a leaner 'expressions' system rather than a full-blown data binding system: i.e., expressions are automatically evaluated once, and can be re-evaluated on demand, rather than being repeatedly reevaluated whether you need them to be or not.
+#Part 2: Hacking the compiler#
+How would we go about using Flex's bindings syntax parser for our own ends then, overriding the default behaviour of data bindings? One important point to understand is that the MXML itself is not compiled directly, rather it is first converted into ActionScript source code, which is then compiled to produce the bytecode for the classes which make up the program.
+The first step in bending the compiler towards our ends is to see what it's doing at the moment: if we get an idea of what source code is being generated from the MXML, we can easily assess the modifications needed to change the behaviour. It turns out there's a compiler flag to do exactly that: you just need to compile your project with `-keep` added to the compiler arguments, and the temporary intermediary ActionScript files won't be automatically deleted after compilation, so after compiling you can peruse them at your leisure and decide what you need to change in your implementation.
+Once you have an idea of what code we want the source generator to spit out, it's time to dive into the intimidating innards of the Flex SDK. Luckily for us, it turns out that not only the Flex framework, but also the entire SDK, is open source. This means that as well as being able to edit the Flex framework components, we can edit the compiler itself to tweak the program which is generated from our source code.
+It's easy to be put off by the almost complete lack of documentation for the <a href="http://opensource.adobe.com/wiki/display/flexsdk/Get+Source+Code">Open Source SDK</a>, especially seeing as there's not a single resource on the internet which discusses custom ActionScript source code generation from MXML files in detail. But after downloading the SDK source, following the instructions to get the ANT build working, and quite a while of wading through the tangled morass of Java it becomes clear that the Adobe employees are indeed looking out for us when you come across two files, named ClassDef.vm and ClassDefLib.vm (in modules/compiler/src/java/flex2/compiler/mxml/gen).
+These are Velocity templates - basically they are relatively simple text templates which allow direct access to the Java variables and functions which are in scope (a bit like .jsp pages), plus they have their own macros/functions. Download the <a href="https://github.com/subtleGradient/Java-Velocity.tmbundle">TextMate bundle</a> to have a look at them with code colouring/folding and see what I mean: ClassDef.vm is the class definition template file, which dictates the order in which the source is generated, while the ClassDefLib.vm contains the functions which generate the actual source code.
+The templates are actually commented (for once) and so are fairly self-explanatory. For a case like ours it doesn't take too long to swap out the binding code with our expressions code: we basically prevent all the binding code from being inserted, and insert in its place a function to run through all the expressions and update the object's properties accordingly. Additionally, it checks whether the object is an event dispatcher, and if so it causes the Event.INIT event to trigger a re-evaluation of all the expressions, giving on-demand updates of expressions. It also checks to see whether the object is a DisplayObject, and if so causes the Event.ADDED_TO_STAGE event to trigger the Event.INIT event (and hence an initial evaluation of the expressions). The advantage of this is that, say, we can create a base ActionScript class which defines a strongly typed value object field for the page's model, and then make an MXML layout file like the following to subclass it and add a visual style:
+	<?xml version="1.0" encoding="utf-8?>
+	<ExamplePageBase xmlns="myproject.pages" xmlns:text="flash.text">
+		<text:TextField id="title" multiline="false" autoSize="false" text="{model.title}" x="20" y="20" width="300" height="20"/>
+		<text:TextField id="body" multiline="true" autoSize="left" text="{model.body}" x="20" y="40" width="300" height="200"/>
+	</ExamplePageBase>
+With this setup, an object of this layout class can be instantiated, then the 'model' property can be set, then when it is added to the stage it will automatically have its expressions evaluated, populating the text fields with the correct data.
+You can download these Flex 3 example templates from the download section of this this repository. Flex 4 templates will be similar, but not identical.
+Once you're happy with your modifications to the templates, you can create your customised compiler by running the ANT build, which will create a bespoke version of the SDK from scratch: it will tell you if it fails to compile your templates because of an error. Now that you have your custom SDK, you can use that as your Flex SDK path when exporting from FDT/Flash Builder/FlashDevelop etc. (It's a good idea to keep the `-keep` argument set and inspect the generated source until you're happy that your templates are doing what they're supposed to).
+Through this customised code generation, it's possible to do all kinds of new and exciting things, from compile-time dependency injection to significantly enhancing a class's behaviour: it really allows you to do a huge amount of manipulation on MXML files, affording you all the benefits of a syntax geared much more towards layouts and other hierarchical data, with none of the limitations. And it's all plain old ActionScript, without a framework.swc in sight.
