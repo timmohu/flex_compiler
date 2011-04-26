@@ -112,7 +112,7 @@ The templates are actually commented (for once) and so are fairly self-explanato
 
 With this setup, an object of this layout class can be instantiated, then the `model` property can be set, then when it is added to the stage it will automatically have its expressions evaluated, populating the text fields with the correct data.
 
-You can download these Flex 3 example templates from the download section of this this repository. Flex 4 templates will be similar, but not identical.
+You can download these Flex 3 example templates from <a href="https://github.com/timmohu/flex_compiler">this github repository</a>. Flex 4 templates will be similar, but not identical.
 
 Once you're happy with your modifications to the templates, you can create your customised compiler by running the ANT build, which will create a bespoke version of the SDK from scratch: it will tell you if it fails to compile your templates because of an error. Now that you have your custom SDK, you can use that as your Flex SDK path when exporting from FDT/Flash Builder/FlashDevelop etc. (It's a good idea to keep the `-keep` argument set and inspect the generated source until you're happy that your templates are doing what they're supposed to).
 
